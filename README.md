@@ -6,19 +6,49 @@ A lightweight webhook delivery system that never drops a message. Built with Nod
 
 You send a webhook request. This service delivers it to the destination. If the destination is down, it retries — 10 seconds, 30 seconds, 2 minutes, 10 minutes. If it's still down after five attempts, the webhook moves to a dead-letter queue where you can inspect it and replay it later. Every single attempt is logged and timestamped.
 
+## Features
+
+- Reliable webhook delivery
+- Automatic retry with exponential backoff
+- Dead Letter Queue (DLQ)
+- Replay failed deliveries
+- SQLite persistence
+- Delivery audit logs
+- Graceful shutdown support
+- Crash recovery
+- Health check endpoint
+- RESTful API
+
 ## Architecture at a glance
 
 ```
-POST /webhooks/send  →  PENDING  →  PROCESSING  →  HTTP POST  
-                                                      ↓  
-                                          ┌──────┬──────┬──────┐  
-                                        2xx    410   Timeout/5xx  
-                                          ↓       ↓       ↓  
-                                      DELIVERED  DEAD   RETRYING  
-                                                          ↓  
-                                                   Backoff & retry  
-                                                          ↓  
-                                                   After 5 → DEAD  
+POST /webhooks/send
+        │
+        ▼
+     PENDING
+        │
+        ▼
+  Retry Scheduler
+        │
+        ▼
+   HTTP Dispatcher
+        │
+ ┌──────┼──────────┐
+ │      │          │
+ ▼      ▼          ▼
+2xx    5xx      Timeout
+ │      │          │
+ ▼      ▼          ▼
+DELIVERED RETRYING RETRYING
+               │
+               ▼
+          Max Retries
+               │
+               ▼
+              DEAD
+               │
+               ▼
+        POST /webhooks/:id/replay
 ```
 
 The scheduler polls every two seconds. SQLite is the source of truth — timers are just a wake-up mechanism.
@@ -40,12 +70,14 @@ src/
 
 
 ## Endpoints
-| Method | Endpoint | What it does |  
-|--------|----------|-------------|  
-| `POST` | `/webhooks/send` | Accept a new webhook delivery request |  
-| `GET` | `/webhooks/delivery/:id` | Check status and see all attempt logs |  
-| `GET` | `/webhooks/dead-letter` | List all dead deliveries |  
-| `POST` | `/webhooks/replay/:id` | Replay a dead delivery back into the queue |  
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/webhooks/send` | Queue a new webhook delivery |
+| `GET` | `/webhooks/:id` | Get delivery details and attempt history |
+| `GET` | `/webhooks/dead` | List all dead-letter deliveries |
+| `POST` | `/webhooks/:id/replay` | Replay a dead delivery |
+| `GET` | `/health` | Health check endpoint |
 
 ## Key design decisions
 
@@ -77,8 +109,73 @@ Authentication on the replay endpoint
 - Metrics, structured logging, and paginated DLQ
 
 ## Built with
-Node.js, Express, SQLite, and the kind of thinking that comes from breaking things and fixing them properly.
+
+- Node.js
+- Express.js
+- SQLite
+- UUID
+- Axios
 
 ## Deployment Link 
 
 `URL: ` {https://smart-retry-queue.onrender.com/}
+
+## Live Demo
+
+Base URL
+
+```
+https://smart-retry-queue.onrender.com
+```
+
+Health Check
+
+```
+GET https://smart-retry-queue.onrender.com/health
+```
+
+## Example Request
+
+### Queue a Webhook
+
+```http
+POST /webhooks/send
+Content-Type: application/json
+```
+
+```json
+{
+  "url": "https://webhook.site/YOUR-UNIQUE-ID",
+  "payload": {
+    "message": "Hello from Smart Retry Queue"
+  }
+}
+```
+
+Example Response
+
+```json
+{
+  "message": "Delivery queued.",
+  "delivery": {
+    "id": "083c30d6-e720-41e3-aec6-aa571abca020",
+    "status": "PENDING"
+  }
+}
+```
+
+### Check Delivery Status
+
+```http
+GET /webhooks/:id
+```
+
+Example Response
+
+```json
+{
+  "status": "DELIVERED",
+  "attempt_count": 1,
+  "delivered_at": "2026-07-10T07:45:29.915Z"
+}
+```
