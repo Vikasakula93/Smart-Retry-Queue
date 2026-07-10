@@ -7,22 +7,18 @@ A lightweight webhook delivery system that never drops a message. Built with Nod
 You send a webhook request. This service delivers it to the destination. If the destination is down, it retries — 10 seconds, 30 seconds, 2 minutes, 10 minutes. If it's still down after five attempts, the webhook moves to a dead-letter queue where you can inspect it and replay it later. Every single attempt is logged and timestamped.
 
 ## Architecture at a glance
+
 ```
-flowchart TD
-    A[POST /webhooks/send] --> B[SQLite PENDING]
-    B --> C[Scheduler polls every 2s]
-    C --> D{Conditional UPDATE claim}
-    D -->|Claimed| E[PROCESSING]
-    D -->|Not claimed| C
-    E --> F[HTTP POST to destination]
-    F --> G{Response}
-    G -->|2xx OK| H[DELIVERED ✓]
-    G -->|410 Gone| I[DEAD]
-    G -->|Timeout / 5xx| J[RETRYING]
-    J --> K{Attempts < 5?}
-    K -->|Yes| L[Backoff: 10s / 30s / 2m / 10m]
-    L --> C
-    K -->|No| I
+POST /webhooks/send  →  PENDING  →  PROCESSING  →  HTTP POST  
+                                                      ↓  
+                                          ┌──────┬──────┬──────┐  
+                                        2xx    410   Timeout/5xx  
+                                          ↓       ↓       ↓  
+                                      DELIVERED  DEAD   RETRYING  
+                                                          ↓  
+                                                   Backoff & retry  
+                                                          ↓  
+                                                   After 5 → DEAD  
 ```
 
 The scheduler polls every two seconds. SQLite is the source of truth — timers are just a wake-up mechanism.
