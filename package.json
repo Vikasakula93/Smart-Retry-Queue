@@ -1,0 +1,14 @@
+{
+  "name": "smart-retry-queue",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Persistent webhook retry queue built without a job-queue library",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js && node --check src/app.js && node --check src/config/database.js && node --check src/controllers/webhookController.js && node --check src/routes/webhookRoutes.js && node --check src/services/backoffService.js && node --check src/storage/webhookRepository.js && node --check src/workers/retryScheduler.js && node --check src/workers/webhookDispatcher.js && node --check src/demoReceiver.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": { "express": "^4.21.2", "sqlite3": "^5.1.7" }
+}

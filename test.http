@@ -1,0 +1,59 @@
+@baseUrl = http://localhost:3000
+
+### 1. Health check
+GET {{baseUrl}}/health
+
+### Before using these examples, run: node src/demoReceiver.js (in another terminal)
+### 2. Successful delivery
+# Copy the returned delivery.id into @deliveryId below, then use request 5.
+POST {{baseUrl}}/webhooks/send
+Content-Type: application/json
+
+{
+  "url": "http://localhost:4000/success",
+  "payload": { "event": "payment.succeeded", "paymentId": "pay_123" },
+  "headers": { "x-webhook-source": "smart-retry-queue-demo" }
+}
+
+### 3. Retry then success demo: this local receiver returns 503 twice, then 200
+POST {{baseUrl}}/webhooks/send
+Content-Type: application/json
+
+{
+  "url": "http://localhost:4000/flaky",
+  "payload": { "event": "invoice.created", "invoiceId": "inv_456" },
+  "headers": {}
+}
+
+### 4. Dead-letter demo: returns 500 and becomes DEAD after five attempts.
+# To demonstrate quickly, start main app with BACKOFF_DELAYS_MS=1000,1000,1000,1000,1000 npm start.
+POST {{baseUrl}}/webhooks/send
+Content-Type: application/json
+
+{
+  "url": "http://localhost:4000/fail",
+  "payload": { "event": "customer.deleted" },
+  "headers": {}
+}
+
+### 5. Permanent failure demo: 410 becomes DEAD after one attempt
+POST {{baseUrl}}/webhooks/send
+Content-Type: application/json
+
+{
+  "url": "http://localhost:4000/gone",
+  "payload": { "event": "customer.deleted" },
+  "headers": {}
+}
+
+### Set this after sending one of the requests above
+@deliveryId = REPLACE_WITH_DELIVERY_UUID
+
+### 6. Inspect delivery status and its persistent attempt log
+GET {{baseUrl}}/webhooks/{{deliveryId}}
+
+### 7. List all dead-letter deliveries
+GET {{baseUrl}}/webhooks/dead
+
+### 8. Replay a DEAD delivery. It resets to PENDING and the worker picks it up.
+POST {{baseUrl}}/webhooks/{{deliveryId}}/replay
