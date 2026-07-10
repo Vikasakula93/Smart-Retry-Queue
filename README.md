@@ -2,12 +2,6 @@
 
 A lightweight webhook delivery system that never drops a message. Built with Node.js, Express, and SQLite — zero queue dependencies, zero magic, just reliable delivery with full audit logs.
 
-## Run
-
-```bash
-npm install
-npm start
-```
 ## What it does
 
 You send a webhook request. This service delivers it to the destination. If the destination is down, it retries — 10 seconds, 30 seconds, 2 minutes, 10 minutes. If it's still down after five attempts, the webhook moves to a dead-letter queue where you can inspect it and replay it later. Every single attempt is logged and timestamped.
