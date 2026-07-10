@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Retry Queue Dashboard</title>
+<style>
+body{font-family:Arial,sans-serif;background:#111827;color:#fff;margin:0}
+header{padding:20px;text-align:center;background:#1f2937}
+.container{max-width:1100px;margin:auto;padding:20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
+.card{background:#1f2937;padding:16px;border-radius:12px}
+input,button{padding:10px;border-radius:8px;border:none}
+button{background:#2563eb;color:#fff;cursor:pointer}
+table{width:100%;border-collapse:collapse;margin-top:20px}
+th,td{padding:10px;border-bottom:1px solid #374151}
+.status{padding:4px 8px;border-radius:999px}
+.DELIVERED{background:#14532d}.PENDING{background:#854d0e}.DEAD{background:#7f1d1d}
+pre{white-space:pre-wrap;background:#0f172a;padding:10px;border-radius:8px}
+</style></head>
+<body>
+<header><h1>🚀 Smart Retry Queue Dashboard</h1></header>
+<div class="container">
+<div class="cards">
+<div class="card"><h3>Dead Deliveries</h3><div id="deadCount">-</div></div>
+<div class="card"><h3>Search Delivery</h3>
+<input id="deliveryId" placeholder="Paste Delivery ID">
+<button onclick="loadDelivery()">Search</button></div>
+</div>
+
+<h2>Dead Letter Queue</h2>
+<table><thead><tr><th>ID</th><th>Status</th><th>Action</th></tr></thead><tbody id="deadBody"></tbody></table>
+
+<h2>Delivery Details</h2>
+<pre id="details">Search a delivery ID.</pre>
+</div>
+<script>
+const API="";
+async function loadDead(){
+ const r=await fetch(API+"/webhooks/dead");
+ const data=await r.json();
+ document.getElementById("deadCount").textContent=data.length;
+ const tb=document.getElementById("deadBody");
+ tb.innerHTML="";
+ data.forEach(d=>{
+   tb.innerHTML+=`<tr><td>${d.id}</td><td><span class="status ${d.status}">${d.status}</span></td>
+   <td><button onclick="replay('${d.id}')">Replay</button></td></tr>`;
+ });
+}
+async function loadDelivery(){
+ const id=document.getElementById("deliveryId").value.trim();
+ if(!id)return alert("Enter Delivery ID");
+ const r=await fetch(API+"/webhooks/"+id);
+ const data=await r.json();
+ document.getElementById("details").textContent=JSON.stringify(data,null,2);
+}
+async function replay(id){
+ const r=await fetch(API+"/webhooks/"+id+"/replay",{method:"POST"});
+ const data=await r.json();
+ alert(JSON.stringify(data));
+ loadDead();
+}
+loadDead();
+setInterval(loadDead,5000);
+</script>
+</body></html>

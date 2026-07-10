@@ -3,8 +3,11 @@ const webhookRoutes = require('./routes/webhookRoutes');
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Root route
-app.get('/', (_req, res) => {
+app.get('/api', (_req, res) => {
   res.json({
     message: 'Smart Retry Queue API is running 🚀'
   });
