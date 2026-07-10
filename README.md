@@ -1,6 +1,6 @@
 # Smart Retry Queue
 
-Persistent webhook delivery with exponential-backoff retries, an audit log, and a dead-letter queue.
+A lightweight webhook delivery system that never drops a message. Built with Node.js, Express, and SQLite — zero queue dependencies, zero magic, just reliable delivery with full audit logs.
 
 ## Run
 
@@ -8,19 +8,81 @@ Persistent webhook delivery with exponential-backoff retries, an audit log, and 
 npm install
 npm start
 ```
+## What it does
 
-The server starts on `http://localhost:3000`. Copy `.env.example` to `.env` only if you want to change configuration; otherwise the defaults work.
+You send a webhook request. This service delivers it to the destination. If the destination is down, it retries — 10 seconds, 30 seconds, 2 minutes, 10 minutes. If it's still down after five attempts, the webhook moves to a dead-letter queue where you can inspect it and replay it later. Every single attempt is logged and timestamped.
 
-Use `test.http` with the VS Code REST Client extension. `npm run check` performs a syntax check of every source file.
+## Architecture at a glance
+POST /webhooks/send  →  SQLite (PENDING)  →  Scheduler picks it up
+                                              ↓
+                                  Conditional UPDATE (PROCESSING)
+                                              ↓
+                                  HTTP POST to destination
+                                              ↓
+                          ┌──────────────────┼──────────────────┐
+                      2xx OK             410 Gone         Timeout/5xx
+                          ↓                  ↓                  ↓
+                     DELIVERED             DEAD             RETRYING
+                                                              ↓
+                                                     Backoff & retry
+                                                              ↓
+                                                   After 5 fails → DEAD
 
-For a fully local receiver, open a second terminal and run `node src/demoReceiver.js`. For a quick dead-letter demonstration only, start the main app with `BACKOFF_DELAYS_MS=1000,1000,1000,1000,1000 npm start`; do not use that override in the normal configuration.
+The scheduler polls every two seconds. SQLite is the source of truth — timers are just a wake-up mechanism.
 
-## Important behavior
+## Project structure
 
-- A successful 2xx response becomes `DELIVERED` immediately.
-- A `410 Gone` becomes `DEAD` immediately.
-- Other responses and network/timeout failures are retried until five total failed attempts, then become `DEAD`.
-- Every attempt is persisted in SQLite; response text is limited to 500 characters.
-- On startup, deliveries left in `PROCESSING` by a crash are returned to `PENDING` for recovery.
+```bash
+src/
+  app.js                         Express setup and error handler
+  server.js                      Boots database, starts scheduler, graceful shutdown
+  config/database.js             SQLite connection and schema
+  controllers/webhookController.js  Input validation and HTTP responses
+  routes/webhookRoutes.js        Endpoint mapping
+  storage/webhookRepository.js   All delivery and log database operations
+  services/backoffService.js     Retry timing and attempt limits
+  workers/retryScheduler.js      Polling, claiming, bounded concurrent dispatch
+  workers/webhookDispatcher.js   HTTP POST, timeout, state transitions
+```
 
-See `docs/` for the design explanation and `test.http` for demonstrations.
+
+## Endpoints
+| Method | Endpoint | What it does |  
+|--------|----------|-------------|  
+| `POST` | `/webhooks/send` | Accept a new webhook delivery request |  
+| `GET` | `/webhooks/delivery/:id` | Check status and see all attempt logs |  
+| `GET` | `/webhooks/dead-letter` | List all dead deliveries |  
+| `POST` | `/webhooks/replay/:id` | Replay a dead delivery back into the queue |  
+
+## Key design decisions
+
+1. Why SQLite and not a queue library. SQLite is durable, needs zero setup, and makes restart recovery trivial. A queue library would add complexity without solving any real problem here.
+
+2. How we prevent duplicate processing. Workers claim deliveries with a conditional SQL UPDATE. If two workers grab the same row, only one wins. The other moves on.
+
+3. Why the queue survives crashes. On startup, any delivery stuck in PROCESSING gets reset to PENDING. The database never lies about what state a delivery is in.
+
+4. The at-least-once problem. If the process crashes between the destination accepting the request and saving DELIVERED, that delivery retries. We send an x-delivery-id header so the receiver can deduplicate. Exactly-once delivery isn't possible with plain HTTP, and we don't pretend otherwise.
+
+5. Retry timing. 10s → 30s → 2m → 10m → 30m. Five attempts total. The fifth attempt either succeeds or moves to dead — the 30m delay before it never actually fires, but it's kept in the config for clarity.
+
+## Getting started
+```bash
+git clone <your-repo-url>
+cd webhook-retry-queue
+npm install
+npm start
+```
+The server starts on port 3000. Use test.http or any HTTP client to send requests.
+
+## What I'd add with more time
+
+- Integration tests with a fake webhook receiver
+Authentication on the replay endpoint
+- Encryption for sensitive payload and header data
+- Worker heartbeat mechanism for hung processes
+- Metrics, structured logging, and paginated DLQ
+
+## Built with
+Node.js, Express, SQLite, and the kind of thinking that comes from breaking things and fixing them properly.
+
